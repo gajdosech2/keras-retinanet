@@ -21,51 +21,47 @@ from PIL import Image
 
 import tensorflow as tf
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-PROCESS_PATH = "data/process/"
-RESULT_PATH = "data/result/"
+
+RESULT_PATH = "result/"
+PROCESS_PATH = "process/"
+DATA_SUFFIX = '_datamap.png'
 
 model_path = os.path.join('snapshots/', '', 'model.h5')
-
 model = models.load_model(model_path, backbone_name='resnet50')
 print(model.summary())
 
-# load image
-image = read_image_bgr(PROCESS_PATH + os.listdir(PROCESS_PATH)[0])
+for f in os.listdir(PROCESS_PATH):
+    if f.endswith(DATA_SUFFIX):
+        image = read_image_bgr(PROCESS_PATH + f)
+        draw = cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
+        image = preprocess_image(image)
+        image, scale = resize_image(image)
+        
+        print(image.shape)
+        
+        start = time.time()
+        boxes, scores, labels = model.predict_on_batch(np.expand_dims(image, axis=0))
+        print('processing time: ', time.time() - start)
+        boxes /= scale
+        
+        labels_to_names = {0:'plate', 1:'thruster', 2:'circlet'}
+        
+        with open(RESULT_PATH + f[:-len(DATA_SUFFIX)] + '.txt', 'w') as output:
+            for box, score, label in zip(boxes[0], scores[0], labels[0]):
+                if score < 0.8:
+                    break
 
-# copy to draw on
-draw = image.copy()
-draw = cv2.cvtColor(draw, cv2.COLOR_BGR2RGB)
+                color = label_color(label)
+                b = box.astype(int)
+                print(','.join(map(str, list(b))) + ',' + str(label), file=output)
+                draw_box(draw, b, color=[(0, 255, 0), (255, 0, 0), (0, 0, 255)][label])
 
-# preprocess image for network
-image = preprocess_image(image)
-image, scale = resize_image(image)
+                caption = "{} {:.3f}".format(labels_to_names[label], score)
+                draw_caption(draw, b, caption)
 
-# process image
-start = time.time()
-boxes, scores, labels = model.predict_on_batch(np.expand_dims(image, axis=0))
-print("processing time: ", time.time() - start)
+            im = Image.fromarray(draw)
+            im.save(RESULT_PATH + f[:-len(DATA_SUFFIX)] + '_result.png')
+   
 
-# correct for image scale
-boxes /= scale
-
-# load label to names mapping for visualization purposes
-labels_to_names = {0: 'wheel'}
-
-# visualize detections
-for box, score, label in zip(boxes[0], scores[0], labels[0]):
-    # scores are sorted so we can break
-    if score < 0.5:
-        break
-
-    color = label_color(label)
-
-    b = box.astype(int)
-    draw_box(draw, b, color=(0, 255, 0))
-
-    #caption = "{} {:.3f}".format(labels_to_names[label], score)
-    #draw_caption(draw, b, caption)
-
-
-im = Image.fromarray(draw)
-im.save(RESULT_PATH + "result.png")

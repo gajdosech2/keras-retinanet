@@ -21,3 +21,8 @@ __pycache__/
 .coverage.*
 coverage.xml
 *.cover
+
+process*
+result
+snapshots/
+data
